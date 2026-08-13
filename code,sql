@@ -1,0 +1,884 @@
+-- =====================================================================
+-- PART E.1 — DATABASE CREATION
+-- =====================================================================
+DROP DATABASE IF EXISTS HotelReservationSystem;
+CREATE DATABASE HotelReservationSystem;
+USE HotelReservationSystem;
+
+
+-- =====================================================================
+-- PART E.2 — TABLE CREATION (DDL)
+-- =====================================================================
+
+-- ---------------------------------------------------------------
+-- 1. HOTELS  (one row per physical hotel property)
+-- ---------------------------------------------------------------
+CREATE TABLE Hotels (
+    HotelID       INT AUTO_INCREMENT PRIMARY KEY,
+    HotelName     VARCHAR(100) NOT NULL,
+    City          VARCHAR(50)  NOT NULL,
+    Address       VARCHAR(150) NOT NULL,
+    Phone         VARCHAR(20)  NOT NULL UNIQUE,
+    StarRating    TINYINT      NOT NULL DEFAULT 3 CHECK (StarRating BETWEEN 1 AND 5),
+    OpeningDate   DATE         NOT NULL
+);
+
+-- ---------------------------------------------------------------
+-- 2. ROOM TYPES (Single / Double / Deluxe / Suite / Executive ...)
+-- ---------------------------------------------------------------
+CREATE TABLE RoomTypes (
+    RoomTypeID    INT AUTO_INCREMENT PRIMARY KEY,
+    TypeName      VARCHAR(50)   NOT NULL UNIQUE,
+    BaseRate      DECIMAL(10,2) NOT NULL CHECK (BaseRate > 0),
+    MaxOccupancy  TINYINT       NOT NULL DEFAULT 2 CHECK (MaxOccupancy > 0),
+    Description   VARCHAR(255)
+);
+
+-- ---------------------------------------------------------------
+-- 3. ROOMS (physical rooms, each belongs to one hotel & one type)
+-- ---------------------------------------------------------------
+CREATE TABLE Rooms (
+    RoomID        INT AUTO_INCREMENT PRIMARY KEY,
+    HotelID       INT NOT NULL,
+    RoomTypeID    INT NOT NULL,
+    RoomNumber    VARCHAR(10) NOT NULL,
+    Floor         TINYINT NOT NULL DEFAULT 1,
+    Status        ENUM('Available','Occupied','Maintenance') NOT NULL DEFAULT 'Available',
+    CONSTRAINT fk_rooms_hotel     FOREIGN KEY (HotelID)     REFERENCES Hotels(HotelID)       ON DELETE CASCADE,
+    CONSTRAINT fk_rooms_roomtype  FOREIGN KEY (RoomTypeID)  REFERENCES RoomTypes(RoomTypeID)  ON DELETE RESTRICT,
+    CONSTRAINT uq_room_per_hotel  UNIQUE (HotelID, RoomNumber)
+);
+
+-- ---------------------------------------------------------------
+-- 4. GUESTS (customers who book rooms)
+-- ---------------------------------------------------------------
+CREATE TABLE Guests (
+    GuestID         INT AUTO_INCREMENT PRIMARY KEY,
+    FirstName       VARCHAR(50)  NOT NULL,
+    LastName        VARCHAR(50)  NOT NULL,
+    Email           VARCHAR(100) NOT NULL UNIQUE,
+    Phone           VARCHAR(20)  NOT NULL,
+    Address         VARCHAR(150),
+    City            VARCHAR(50),
+    NIDPassport     VARCHAR(30)  UNIQUE,
+    DOB             DATE,
+    RegisteredDate  DATE NOT NULL DEFAULT (CURRENT_DATE)
+);
+
+-- ---------------------------------------------------------------
+-- 5. STAFF (hotel employees; the one who processes a booking)
+-- ---------------------------------------------------------------
+CREATE TABLE Staff (
+    StaffID     INT AUTO_INCREMENT PRIMARY KEY,
+    HotelID     INT NOT NULL,
+    FullName    VARCHAR(100) NOT NULL,
+    Position    VARCHAR(50)  NOT NULL,
+    Salary      DECIMAL(10,2) NOT NULL CHECK (Salary >= 0),
+    Phone       VARCHAR(20),
+    HireDate    DATE NOT NULL,
+    CONSTRAINT fk_staff_hotel FOREIGN KEY (HotelID) REFERENCES Hotels(HotelID) ON DELETE CASCADE
+);
+
+-- ---------------------------------------------------------------
+-- 6. RESERVATIONS (the central transaction table)
+-- ---------------------------------------------------------------
+CREATE TABLE Reservations (
+    ReservationID   INT AUTO_INCREMENT PRIMARY KEY,
+    GuestID         INT NOT NULL,
+    RoomID          INT NOT NULL,
+    StaffID         INT,
+    CheckInDate     DATE NOT NULL,
+    CheckOutDate    DATE NOT NULL,
+    BookingDate     DATE NOT NULL DEFAULT (CURRENT_DATE),
+    NumGuests       TINYINT NOT NULL DEFAULT 1 CHECK (NumGuests > 0),
+    Status          ENUM('Confirmed','CheckedIn','CheckedOut','Cancelled') NOT NULL DEFAULT 'Confirmed',
+    TotalAmount     DECIMAL(10,2) NOT NULL DEFAULT 0,
+    CONSTRAINT fk_res_guest  FOREIGN KEY (GuestID) REFERENCES Guests(GuestID) ON DELETE CASCADE,
+    CONSTRAINT fk_res_room   FOREIGN KEY (RoomID)  REFERENCES Rooms(RoomID)   ON DELETE RESTRICT,
+    CONSTRAINT fk_res_staff  FOREIGN KEY (StaffID)  REFERENCES Staff(StaffID) ON DELETE SET NULL,
+    CONSTRAINT chk_res_dates CHECK (CheckOutDate > CheckInDate)
+);
+
+-- ---------------------------------------------------------------
+-- 7. PAYMENTS (one reservation can have several part-payments)
+-- ---------------------------------------------------------------
+CREATE TABLE Payments (
+    PaymentID       INT AUTO_INCREMENT PRIMARY KEY,
+    ReservationID   INT NOT NULL,
+    Amount          DECIMAL(10,2) NOT NULL CHECK (Amount > 0),
+    PaymentDate     DATE NOT NULL DEFAULT (CURRENT_DATE),
+    PaymentMethod   ENUM('Cash','Card','MobileBanking','BankTransfer') NOT NULL,
+    PaymentStatus   ENUM('Pending','Completed','Refunded') NOT NULL DEFAULT 'Completed',
+    CONSTRAINT fk_pay_res FOREIGN KEY (ReservationID) REFERENCES Reservations(ReservationID) ON DELETE CASCADE
+);
+
+-- ---------------------------------------------------------------
+-- 8. SERVICES (extra hotel services: spa, laundry, breakfast, ...)
+-- ---------------------------------------------------------------
+CREATE TABLE Services (
+    ServiceID     INT AUTO_INCREMENT PRIMARY KEY,
+    ServiceName   VARCHAR(50) NOT NULL UNIQUE,
+    Price         DECIMAL(8,2) NOT NULL CHECK (Price >= 0)
+);
+
+-- ---------------------------------------------------------------
+-- 9. RESERVATION_SERVICES (junction: M:N between Reservations & Services)
+-- ---------------------------------------------------------------
+CREATE TABLE ReservationServices (
+    ResServiceID    INT AUTO_INCREMENT PRIMARY KEY,
+    ReservationID   INT NOT NULL,
+    ServiceID       INT NOT NULL,
+    Quantity        INT NOT NULL DEFAULT 1 CHECK (Quantity > 0),
+    ServiceDate     DATE NOT NULL DEFAULT (CURRENT_DATE),
+    CONSTRAINT fk_rs_res FOREIGN KEY (ReservationID) REFERENCES Reservations(ReservationID) ON DELETE CASCADE,
+    CONSTRAINT fk_rs_svc FOREIGN KEY (ServiceID)     REFERENCES Services(ServiceID)         ON DELETE RESTRICT
+);
+
+-- ---------------------------------------------------------------
+-- 10. REVIEWS (a guest reviews a hotel after a stay)
+-- ---------------------------------------------------------------
+CREATE TABLE Reviews (
+    ReviewID    INT AUTO_INCREMENT PRIMARY KEY,
+    GuestID     INT NOT NULL,
+    HotelID     INT NOT NULL,
+    Rating      TINYINT NOT NULL CHECK (Rating BETWEEN 1 AND 5),
+    Comment     VARCHAR(255),
+    ReviewDate  DATE NOT NULL DEFAULT (CURRENT_DATE),
+    CONSTRAINT fk_rev_guest FOREIGN KEY (GuestID) REFERENCES Guests(GuestID) ON DELETE CASCADE,
+    CONSTRAINT fk_rev_hotel FOREIGN KEY (HotelID) REFERENCES Hotels(HotelID) ON DELETE CASCADE
+);
+
+-- ---------------------------------------------------------------
+-- 11. RESERVATION_AUDIT (support table used by the DELETE trigger)
+-- ---------------------------------------------------------------
+CREATE TABLE ReservationAudit (
+    AuditID         INT AUTO_INCREMENT PRIMARY KEY,
+    ReservationID   INT NOT NULL,
+    GuestID         INT NOT NULL,
+    ActionType      VARCHAR(20) NOT NULL,
+    ActionDate      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- =====================================================================
+-- PART E.3 — SAMPLE DATA (INSERT)
+-- =====================================================================
+
+-- ---- 1. HOTELS (5) ----------------------------------------------------
+INSERT INTO Hotels (HotelName, City, Address, Phone, StarRating, OpeningDate) VALUES
+('Sea Pearl Beach Resort',        'Cox''s Bazar', 'Marine Drive Road, Cox''s Bazar',      '01711000001', 5, '2015-03-10'),
+('Radisson Blu Chattogram',       'Chattogram',   'GEC Circle, Chattogram',                '01711000002', 5, '2012-07-22'),
+('Pan Pacific Sonargaon',         'Dhaka',        'Karwan Bazar, Dhaka',                    '01711000003', 5, '2005-01-15'),
+('Grand Sultan Tea Resort',       'Sylhet',       'Lakkatura Tea Garden, Sylhet',            '01711000004', 4, '2018-11-05'),
+('Best Western Sylhet Heights',   'Sylhet',       'Airport Road, Sylhet',                    '01711000005', 3, '2019-06-01');
+
+-- ---- 2. ROOM TYPES (5) -------------------------------------------------
+INSERT INTO RoomTypes (TypeName, BaseRate, MaxOccupancy, Description) VALUES
+('Single',       2500.00, 1, 'One single bed, city view'),
+('Double',       3800.00, 2, 'One double bed or twin beds'),
+('Deluxe',       5500.00, 3, 'Larger room with premium furnishing'),
+('Suite',        9000.00, 4, 'Separate living area and bedroom'),
+('Executive',    7200.00, 2, 'Business floor access and lounge privileges');
+
+-- ---- 3. ROOMS (30, 6 per hotel) ----------------------------------------
+INSERT INTO Rooms (HotelID, RoomTypeID, RoomNumber, Floor, Status) VALUES
+(1,1,'101',1,'Available'),(1,2,'102',1,'Available'),(1,3,'201',2,'Occupied'),
+(1,4,'301',3,'Available'),(1,5,'302',3,'Maintenance'),(1,2,'103',1,'Available'),
+(2,1,'101',1,'Available'),(2,2,'102',1,'Occupied'),(2,3,'201',2,'Available'),
+(2,4,'301',3,'Available'),(2,5,'302',3,'Available'),(2,1,'104',1,'Available'),
+(3,1,'101',1,'Occupied'),(3,2,'102',1,'Available'),(3,3,'201',2,'Available'),
+(3,4,'301',3,'Occupied'),(3,5,'302',3,'Available'),(3,3,'202',2,'Available'),
+(4,1,'101',1,'Available'),(4,2,'102',1,'Available'),(4,3,'201',2,'Available'),
+(4,4,'301',3,'Occupied'),(4,5,'302',3,'Available'),(4,2,'103',1,'Maintenance'),
+(5,1,'101',1,'Available'),(5,2,'102',1,'Available'),(5,3,'201',2,'Available'),
+(5,4,'301',3,'Available'),(5,5,'302',3,'Occupied'),(5,1,'105',1,'Available');
+
+-- ---- 4. GUESTS (20) -----------------------------------------------------
+INSERT INTO Guests (FirstName, LastName, Email, Phone, Address, City, NIDPassport, DOB, RegisteredDate) VALUES
+('Abdur','Rahman','abdur.rahman@example.com','01811000001','123 Agrabad','Chattogram','NID001','2002-05-14','2023-01-10'),
+('Minhajun','Miraj','minhaj.miraj@example.com','01811000002','45 Nasirabad','Chattogram','NID002','2001-09-22','2023-01-12'),
+('Ramiatul','Chowdhury','ramiatul.c@example.com','01811000003','78 Halishahar','Chattogram','NID003','2002-02-02','2023-01-15'),
+('Farhan','Islam','farhan.islam@example.com','01811000004','12 Dhanmondi','Dhaka','NID004','1998-11-11','2023-02-01'),
+('Tanjina','Akter','tanjina.akter@example.com','01811000005','88 Gulshan','Dhaka','NID005','1995-03-19','2023-02-05'),
+('Shakib','Hasan','shakib.hasan@example.com','01811000006','34 Bashundhara','Dhaka','NID006','1993-07-08','2023-02-10'),
+('Nusrat','Jahan','nusrat.jahan@example.com','01811000007','56 Uttara','Dhaka','NID007','1997-12-25','2023-02-14'),
+('Rakibul','Islam','rakibul.islam@example.com','01811000008','9 Zindabazar','Sylhet','NID008','1990-04-17','2023-03-01'),
+('Sadia','Islam','sadia.islam@example.com','01811000009','22 Ambarkhana','Sylhet','NID009','1999-08-30','2023-03-05'),
+('John','Smith','john.smith@example.com','01811000010','10 Baker Street','London','PASS010','1985-06-06','2023-03-11'),
+('Emma','Watson','emma.watson@example.com','01811000011','5 Oxford Road','London','PASS011','1988-01-21','2023-03-15'),
+('Liu','Wei','liu.wei@example.com','01811000012','19 Nanjing Road','Shanghai','PASS012','1992-10-10','2023-04-01'),
+('Aisha','Khan','aisha.khan@example.com','01811000013','7 Clifton Block 5','Karachi','PASS013','1994-09-09','2023-04-05'),
+('Michael','Brown','michael.brown@example.com','01811000014','200 5th Ave','New York','PASS014','1991-02-28','2023-04-12'),
+('Sara','Ali','sara.ali@example.com','01811000015','15 Banani','Dhaka','NID015','2000-06-15','2023-05-01'),
+('Tariq','Chowdhury','tariq.chowdhury@example.com','01811000016','67 Khulshi','Chattogram','NID016','1996-11-23','2023-05-06'),
+('Priya','Sharma','priya.sharma@example.com','01811000017','3 MG Road','Delhi','PASS017','1993-03-03','2023-05-20'),
+('David','Lee','david.lee@example.com','01811000018','8 King Street','Toronto','PASS018','1989-12-01','2023-06-01'),
+('Mahin','Uddin','mahin.uddin@example.com','01811000019','29 Chawkbazar','Chattogram','NID019','2001-01-01','2023-06-10'),
+('Farzana','Yasmin','farzana.yasmin@example.com','01811000020','41 Panchlaish','Chattogram','NID020','1998-08-08','2023-06-15');
+
+-- ---- 5. STAFF (15, 3 per hotel) -----------------------------------------
+INSERT INTO Staff (HotelID, FullName, Position, Salary, Phone, HireDate) VALUES
+(1,'Kamal Hossain','Front Desk Manager',45000,'01911000001','2016-01-05'),
+(1,'Rina Begum','Receptionist',28000,'01911000002','2017-03-15'),
+(1,'Jahid Hasan','Housekeeping Supervisor',30000,'01911000003','2018-06-20'),
+(2,'Sabrina Chowdhury','Front Desk Manager',48000,'01911000004','2013-02-01'),
+(2,'Rezaul Karim','Receptionist',27000,'01911000005','2014-05-10'),
+(2,'Nasima Akter','Housekeeping Supervisor',31000,'01911000006','2015-09-01'),
+(3,'Golam Mostofa','Front Desk Manager',50000,'01911000007','2006-04-01'),
+(3,'Farida Yasmin','Receptionist',29000,'01911000008','2008-08-15'),
+(3,'Imran Hossain','Housekeeping Supervisor',32000,'01911000009','2010-01-10'),
+(4,'Anowar Sadat','Front Desk Manager',42000,'01911000010','2019-01-15'),
+(4,'Shirin Sultana','Receptionist',26000,'01911000011','2019-05-01'),
+(4,'Kabir Ahmed','Housekeeping Supervisor',28000,'01911000012','2020-01-01'),
+(5,'Mizanur Rahman','Front Desk Manager',40000,'01911000013','2019-07-01'),
+(5,'Lubna Ferdous','Receptionist',25000,'01911000014','2020-02-01'),
+(5,'Yasin Arafat','Housekeeping Supervisor',27000,'01911000015','2020-08-15');
+
+-- ---- 6. RESERVATIONS (30) ------------------------------------------------
+-- TotalAmount is left as 0 here; the BEFORE-INSERT trigger (Part E.9)
+-- recalculates it automatically from room rate x nights, so this
+-- also doubles as a live demonstration of that trigger.
+INSERT INTO Reservations (GuestID, RoomID, StaffID, CheckInDate, CheckOutDate, BookingDate, NumGuests, Status) VALUES
+(1,3,1,'2026-01-05','2026-01-08','2025-12-20',2,'CheckedOut'),
+(2,4,1,'2026-01-06','2026-01-09','2025-12-21',1,'CheckedOut'),
+(3,7,4,'2026-01-10','2026-01-12','2025-12-22',2,'CheckedOut'),
+(4,13,7,'2026-01-12','2026-01-15','2025-12-23',1,'CheckedOut'),
+(5,16,7,'2026-01-15','2026-01-18','2025-12-24',3,'CheckedOut'),
+(6,2,1,'2026-01-20','2026-01-22','2025-12-28',2,'CheckedOut'),
+(7,8,4,'2026-01-22','2026-01-25','2025-12-29',1,'CheckedOut'),
+(8,22,10,'2026-01-25','2026-01-27','2025-12-30',2,'CheckedOut'),
+(9,29,13,'2026-01-28','2026-01-30','2026-01-02',1,'CheckedOut'),
+(10,1,1,'2026-02-01','2026-02-04','2026-01-10',2,'CheckedOut'),
+(11,9,4,'2026-02-02','2026-02-05','2026-01-11',1,'CheckedOut'),
+(12,14,7,'2026-02-05','2026-02-07','2026-01-12',2,'CheckedOut'),
+(13,20,10,'2026-02-06','2026-02-09','2026-01-13',1,'CheckedOut'),
+(14,26,13,'2026-02-10','2026-02-13','2026-01-15',2,'CheckedOut'),
+(15,5,1,'2026-02-14','2026-02-16','2026-01-20',1,'CheckedOut'),
+(16,11,4,'2026-02-16','2026-02-19','2026-01-22',2,'CheckedOut'),
+(17,17,7,'2026-02-18','2026-02-20','2026-01-25',1,'CheckedOut'),
+(18,23,10,'2026-02-20','2026-02-24','2026-01-28',3,'CheckedOut'),
+(19,30,13,'2026-02-22','2026-02-25','2026-02-01',2,'CheckedOut'),
+(20,6,1,'2026-03-01','2026-03-03','2026-02-10',1,'CheckedOut'),
+(1,10,4,'2026-03-05','2026-03-08','2026-02-15',2,'CheckedOut'),
+(2,15,7,'2026-03-08','2026-03-10','2026-02-18',1,'CheckedOut'),
+(3,21,10,'2026-03-12','2026-03-15','2026-02-20',2,'CheckedOut'),
+(4,27,13,'2026-03-15','2026-03-17','2026-02-25',1,'CheckedOut'),
+(5,3,1,'2026-06-01','2026-06-05','2026-05-15',2,'CheckedIn'),
+(6,7,4,'2026-07-15','2026-07-18','2026-07-01',2,'CheckedIn'),
+(7,13,7,'2026-07-20','2026-07-23','2026-07-05',1,'Confirmed'),
+(8,16,7,'2026-08-01','2026-08-04','2026-07-10',3,'Confirmed'),
+(9,22,10,'2026-08-05','2026-08-07','2026-07-12',1,'Confirmed'),
+(10,29,13,'2026-04-01','2026-04-03','2026-03-10',2,'Cancelled');
+
+-- ---- 7. PAYMENTS (25) ------------------------------------------------
+INSERT INTO Payments (ReservationID, Amount, PaymentDate, PaymentMethod, PaymentStatus) VALUES
+(1,16500.00,'2026-01-05','Card','Completed'),
+(2,17400.00,'2026-01-06','Cash','Completed'),
+(3,7600.00,'2026-01-10','MobileBanking','Completed'),
+(4,10500.00,'2026-01-12','Card','Completed'),
+(5,16500.00,'2026-01-15','BankTransfer','Completed'),
+(6,7600.00,'2026-01-20','Cash','Completed'),
+(7,7600.00,'2026-01-22','Card','Completed'),
+(8,5000.00,'2026-01-25','MobileBanking','Completed'),
+(9,3500.00,'2026-01-28','Cash','Completed'),
+(10,11400.00,'2026-02-01','Card','Completed'),
+(11,7600.00,'2026-02-02','Cash','Completed'),
+(12,7000.00,'2026-02-05','Card','Completed'),
+(13,7500.00,'2026-02-06','MobileBanking','Completed'),
+(14,16500.00,'2026-02-10','BankTransfer','Completed'),
+(15,5000.00,'2026-02-14','Cash','Completed'),
+(16,11400.00,'2026-02-16','Card','Completed'),
+(17,5000.00,'2026-02-18','Cash','Completed'),
+(18,22000.00,'2026-02-20','Card','Completed'),
+(19,10500.00,'2026-02-22','MobileBanking','Completed'),
+(20,5000.00,'2026-03-01','Cash','Completed'),
+(21,11400.00,'2026-03-05','Card','Completed'),
+(22,5000.00,'2026-03-08','Cash','Completed'),
+(23,10500.00,'2026-03-12','Card','Completed'),
+(24,5000.00,'2026-03-15','MobileBanking','Completed'),
+(29,7000.00,'2026-07-12','Card','Pending');
+
+-- ---- 8. SERVICES (8) --------------------------------------------------
+INSERT INTO Services (ServiceName, Price) VALUES
+('Breakfast Buffet', 500.00),
+('Airport Pickup',   1200.00),
+('Laundry',          300.00),
+('Spa Treatment',    2500.00),
+('Late Checkout',    800.00),
+('Extra Bed',        900.00),
+('Room Service',     400.00),
+('City Tour',        3000.00);
+
+-- ---- 9. RESERVATION_SERVICES (26) --------------------------------------
+INSERT INTO ReservationServices (ReservationID, ServiceID, Quantity, ServiceDate) VALUES
+(1,1,3,'2026-01-05'),(1,3,1,'2026-01-06'),
+(2,1,3,'2026-01-06'),(2,2,1,'2026-01-06'),
+(3,1,2,'2026-01-10'),
+(4,4,1,'2026-01-13'),
+(5,1,3,'2026-01-15'),(5,8,1,'2026-01-16'),
+(6,1,2,'2026-01-20'),
+(7,3,2,'2026-01-23'),
+(8,5,1,'2026-01-26'),
+(9,7,2,'2026-01-28'),
+(10,1,3,'2026-02-01'),(10,2,1,'2026-02-01'),
+(11,1,3,'2026-02-02'),
+(12,6,1,'2026-02-05'),
+(13,1,3,'2026-02-06'),
+(14,4,2,'2026-02-11'),
+(15,1,2,'2026-02-14'),
+(16,8,1,'2026-02-17'),
+(17,1,2,'2026-02-18'),
+(18,1,4,'2026-02-20'),(18,2,1,'2026-02-20'),
+(19,3,1,'2026-02-23'),
+(20,1,1,'2026-03-01'),
+(26,1,2,'2026-06-01');
+
+-- ---- 10. REVIEWS (15) ---------------------------------------------------
+INSERT INTO Reviews (GuestID, HotelID, Rating, Comment, ReviewDate) VALUES
+(1,2,5,'Excellent service and clean rooms.','2026-01-09'),
+(2,2,4,'Great stay, breakfast could be better.','2026-01-10'),
+(3,3,5,'Loved the location near Karwan Bazar.','2026-01-13'),
+(4,1,4,'Beautiful sea view from the room.','2026-01-16'),
+(5,4,5,'Tea garden view was breathtaking.','2026-01-19'),
+(6,1,3,'Average experience, AC was noisy.','2026-01-23'),
+(7,2,5,'Staff were very helpful and polite.','2026-01-26'),
+(8,5,4,'Good value for the price.','2026-01-28'),
+(9,4,5,'Will definitely come back again.','2026-01-31'),
+(10,1,4,'Comfortable beds and quiet rooms.','2026-02-05'),
+(11,2,5,'Perfect for a business trip.','2026-02-06'),
+(12,3,4,'Nice pool area and gym.','2026-02-08'),
+(13,4,3,'Room service was a bit slow.','2026-02-10'),
+(14,5,5,'Friendly staff, great breakfast.','2026-02-13'),
+(15,1,5,'One of the best resorts in Cox''s Bazar.','2026-02-17');
+
+
+-- =====================================================================
+-- PART E.4 — UPDATE QUERIES (minimum 5)
+-- =====================================================================
+
+-- U1. Give every Receptionist a 5% salary raise
+UPDATE Staff
+SET Salary = Salary * 1.05
+WHERE Position = 'Receptionist';
+
+-- U2. Mark a room under repair (single-row update by PK)
+UPDATE Rooms
+SET Status = 'Maintenance'
+WHERE RoomID = 6;
+
+-- U3. Move a guest's confirmed reservation to a later check-in/out date
+UPDATE Reservations
+SET CheckInDate = '2026-08-03', CheckOutDate = '2026-08-06'
+WHERE ReservationID = 28;
+
+-- U4. Correct a guest's phone number after they reported it was wrong
+UPDATE Guests
+SET Phone = '01811099999'
+WHERE Email = 'sara.ali@example.com';
+
+-- U5. Mark a pending payment as completed
+UPDATE Payments
+SET PaymentStatus = 'Completed'
+WHERE PaymentID = 25;
+
+-- U6. Bulk-update: raise the base rate of every Deluxe room type by 10%
+UPDATE RoomTypes
+SET BaseRate = BaseRate * 1.10
+WHERE TypeName = 'Deluxe';
+
+
+-- =====================================================================
+-- PART E.5 — DELETE QUERIES (minimum 3)
+-- =====================================================================
+
+-- D1. Remove a cancelled reservation's leftover service add-ons (if any)
+DELETE FROM ReservationServices
+WHERE ReservationID IN (SELECT ReservationID FROM Reservations WHERE Status = 'Cancelled');
+
+-- D2. Delete the cancelled reservation itself
+--     (fires trg_after_reservation_delete, see Part E.9)
+DELETE FROM Reservations
+WHERE Status = 'Cancelled';
+
+-- D3. Remove a guest who registered but never made a booking or review
+DELETE FROM Guests
+WHERE GuestID = (
+    SELECT GuestID FROM (
+        SELECT g.GuestID
+        FROM Guests g
+        LEFT JOIN Reservations r ON g.GuestID = r.GuestID
+        LEFT JOIN Reviews rv     ON g.GuestID = rv.GuestID
+        WHERE r.ReservationID IS NULL AND rv.ReviewID IS NULL
+        LIMIT 1
+    ) AS t
+);
+
+-- D4. Delete a discontinued service (only if unused)
+DELETE FROM Services
+WHERE ServiceName = 'City Tour'
+  AND ServiceID NOT IN (SELECT DISTINCT ServiceID FROM ReservationServices);
+
+
+-- =====================================================================
+-- PART F.1 — SIMPLE QUERIES (minimum 5): SELECT / WHERE / ORDER BY / DISTINCT
+-- =====================================================================
+
+-- Q1. All 5-star hotels
+SELECT HotelName, City, StarRating
+FROM Hotels
+WHERE StarRating = 5;
+
+-- Q2. All rooms currently available, cheapest room type first
+SELECT r.RoomID, r.RoomNumber, h.HotelName, rt.TypeName, rt.BaseRate
+FROM Rooms r
+JOIN Hotels h     ON r.HotelID = h.HotelID
+JOIN RoomTypes rt ON r.RoomTypeID = rt.RoomTypeID
+WHERE r.Status = 'Available'
+ORDER BY rt.BaseRate ASC;
+
+-- Q3. Distinct cities that have at least one hotel
+SELECT DISTINCT City FROM Hotels;
+
+-- Q4. Guests from Chattogram, alphabetically by last name
+SELECT FirstName, LastName, Email
+FROM Guests
+WHERE City = 'Chattogram'
+ORDER BY LastName ASC;
+
+-- Q5. Reservations checking in during January 2026, most recent booking first
+SELECT ReservationID, GuestID, CheckInDate, CheckOutDate, Status
+FROM Reservations
+WHERE CheckInDate BETWEEN '2026-01-01' AND '2026-01-31'
+ORDER BY BookingDate DESC;
+
+-- Q6. Distinct payment methods actually used so far
+SELECT DISTINCT PaymentMethod FROM Payments;
+
+
+-- =====================================================================
+-- PART F.2 — AGGREGATE FUNCTIONS (minimum 5)
+-- =====================================================================
+
+-- A1. COUNT — total number of guests registered
+SELECT COUNT(*) AS TotalGuests FROM Guests;
+
+-- A2. SUM — total revenue collected across all completed payments
+SELECT SUM(Amount) AS TotalRevenue
+FROM Payments
+WHERE PaymentStatus = 'Completed';
+
+-- A3. AVG — average nightly rate across all room types
+SELECT AVG(BaseRate) AS AvgNightlyRate FROM RoomTypes;
+
+-- A4. MIN / MAX — cheapest and priciest room type
+SELECT MIN(BaseRate) AS CheapestRate, MAX(BaseRate) AS MostExpensiveRate
+FROM RoomTypes;
+
+-- A5. COUNT + GROUP BY — number of reservations handled by each staff member
+SELECT s.FullName, COUNT(r.ReservationID) AS ReservationsHandled
+FROM Staff s
+LEFT JOIN Reservations r ON s.StaffID = r.StaffID
+GROUP BY s.StaffID, s.FullName
+ORDER BY ReservationsHandled DESC;
+
+-- A6. AVG rating per hotel
+SELECT h.HotelName, ROUND(AVG(rv.Rating),2) AS AvgRating, COUNT(rv.ReviewID) AS NumReviews
+FROM Hotels h
+JOIN Reviews rv ON h.HotelID = rv.HotelID
+GROUP BY h.HotelID, h.HotelName
+ORDER BY AvgRating DESC;
+
+
+-- =====================================================================
+-- PART F.3 — JOIN QUERIES (minimum 8)
+-- =====================================================================
+
+-- J1. INNER JOIN — reservation list with guest name and room number
+SELECT res.ReservationID, g.FirstName, g.LastName, r.RoomNumber, res.CheckInDate, res.CheckOutDate
+FROM Reservations res
+INNER JOIN Guests g ON res.GuestID = g.GuestID
+INNER JOIN Rooms r  ON res.RoomID = r.RoomID;
+
+-- J2. INNER JOIN (3 tables) — reservation with hotel and room type
+SELECT res.ReservationID, h.HotelName, rt.TypeName, res.TotalAmount
+FROM Reservations res
+INNER JOIN Rooms r      ON res.RoomID = r.RoomID
+INNER JOIN Hotels h     ON r.HotelID = h.HotelID
+INNER JOIN RoomTypes rt ON r.RoomTypeID = rt.RoomTypeID;
+
+-- J3. LEFT JOIN — every guest, with reservation count (0 if none)
+SELECT g.GuestID, g.FirstName, g.LastName, COUNT(res.ReservationID) AS NumReservations
+FROM Guests g
+LEFT JOIN Reservations res ON g.GuestID = res.GuestID
+GROUP BY g.GuestID, g.FirstName, g.LastName
+ORDER BY NumReservations DESC;
+
+-- J4. LEFT JOIN — every room, with the current active reservation if any
+SELECT r.RoomNumber, h.HotelName, res.ReservationID, res.Status
+FROM Rooms r
+LEFT JOIN Reservations res ON r.RoomID = res.RoomID AND res.Status IN ('Confirmed','CheckedIn')
+INNER JOIN Hotels h ON r.HotelID = h.HotelID
+ORDER BY h.HotelName, r.RoomNumber;
+
+-- J5. RIGHT JOIN — every service, with reservations that used it (0 if unused)
+SELECT sv.ServiceName, rs.ReservationID, rs.Quantity
+FROM ReservationServices rs
+RIGHT JOIN Services sv ON rs.ServiceID = sv.ServiceID
+ORDER BY sv.ServiceName;
+
+-- J6. RIGHT JOIN — every hotel, with staff (right side is Hotels here to show the syntax the other way)
+SELECT h.HotelName, s.FullName, s.Position
+FROM Staff s
+RIGHT JOIN Hotels h ON s.HotelID = h.HotelID
+ORDER BY h.HotelName;
+
+-- J7. Multi-table JOIN (4 tables) — full payment ledger with guest & hotel
+SELECT p.PaymentID, g.FirstName, g.LastName, h.HotelName, p.Amount, p.PaymentMethod, p.PaymentDate
+FROM Payments p
+JOIN Reservations res ON p.ReservationID = res.ReservationID
+JOIN Guests g          ON res.GuestID = g.GuestID
+JOIN Rooms r            ON res.RoomID = r.RoomID
+JOIN Hotels h            ON r.HotelID = h.HotelID
+ORDER BY p.PaymentDate;
+
+-- J8. Multi-table JOIN (5 tables) — services used, per guest, per hotel
+SELECT g.FirstName, g.LastName, h.HotelName, sv.ServiceName, rs.Quantity, rs.ServiceDate
+FROM ReservationServices rs
+JOIN Services sv       ON rs.ServiceID = sv.ServiceID
+JOIN Reservations res  ON rs.ReservationID = res.ReservationID
+JOIN Guests g           ON res.GuestID = g.GuestID
+JOIN Rooms r            ON res.RoomID = r.RoomID
+JOIN Hotels h            ON r.HotelID = h.HotelID
+ORDER BY g.LastName;
+
+
+-- =====================================================================
+-- PART F.4 — NESTED QUERIES / SUBQUERIES (minimum 3)
+-- =====================================================================
+
+-- N1. Guests who have spent more than the average total per guest
+SELECT g.FirstName, g.LastName, SUM(p.Amount) AS TotalSpent
+FROM Guests g
+JOIN Reservations res ON g.GuestID = res.GuestID
+JOIN Payments p        ON res.ReservationID = p.ReservationID
+GROUP BY g.GuestID, g.FirstName, g.LastName
+HAVING SUM(p.Amount) > (
+    SELECT AVG(GuestTotal) FROM (
+        SELECT SUM(p2.Amount) AS GuestTotal
+        FROM Reservations res2
+        JOIN Payments p2 ON res2.ReservationID = p2.ReservationID
+        GROUP BY res2.GuestID
+    ) AS sub
+)
+ORDER BY TotalSpent DESC;
+
+-- N2. Rooms that have never been booked
+SELECT RoomID, RoomNumber
+FROM Rooms
+WHERE RoomID NOT IN (SELECT DISTINCT RoomID FROM Reservations);
+
+-- N3. Hotel(s) with the highest average review rating
+SELECT HotelName FROM Hotels
+WHERE HotelID = (
+    SELECT HotelID FROM (
+        SELECT HotelID, AVG(Rating) AS AvgRating
+        FROM Reviews
+        GROUP BY HotelID
+        ORDER BY AvgRating DESC
+        LIMIT 1
+    ) AS best
+);
+
+-- N4. Guests who booked a room priced above the overall average base rate
+SELECT DISTINCT g.FirstName, g.LastName
+FROM Guests g
+JOIN Reservations res ON g.GuestID = res.GuestID
+WHERE res.RoomID IN (
+    SELECT r.RoomID
+    FROM Rooms r
+    JOIN RoomTypes rt ON r.RoomTypeID = rt.RoomTypeID
+    WHERE rt.BaseRate > (SELECT AVG(BaseRate) FROM RoomTypes)
+);
+
+
+-- =====================================================================
+-- PART F.5 — VIEWS (minimum 2)
+-- =====================================================================
+
+-- V1. Quick front-desk view: current room availability by hotel
+CREATE OR REPLACE VIEW vw_RoomAvailability AS
+SELECT h.HotelName, r.RoomNumber, rt.TypeName, rt.BaseRate, r.Status
+FROM Rooms r
+JOIN Hotels h     ON r.HotelID = h.HotelID
+JOIN RoomTypes rt ON r.RoomTypeID = rt.RoomTypeID;
+
+-- Usage:  SELECT * FROM vw_RoomAvailability WHERE Status = 'Available';
+
+-- V2. Management view: revenue and reservation summary per hotel
+CREATE OR REPLACE VIEW vw_HotelRevenueSummary AS
+SELECT h.HotelID, h.HotelName,
+       COUNT(DISTINCT res.ReservationID) AS TotalReservations,
+       COALESCE(SUM(p.Amount), 0)        AS TotalRevenue
+FROM Hotels h
+LEFT JOIN Rooms r          ON h.HotelID = r.HotelID
+LEFT JOIN Reservations res ON r.RoomID = res.RoomID
+LEFT JOIN Payments p       ON res.ReservationID = p.ReservationID AND p.PaymentStatus = 'Completed'
+GROUP BY h.HotelID, h.HotelName;
+
+-- Usage:  SELECT * FROM vw_HotelRevenueSummary ORDER BY TotalRevenue DESC;
+
+-- V3 (bonus). Guest loyalty view: total nights & spend per guest
+CREATE OR REPLACE VIEW vw_GuestLoyalty AS
+SELECT g.GuestID, g.FirstName, g.LastName,
+       COUNT(res.ReservationID)                              AS TotalStays,
+       COALESCE(SUM(DATEDIFF(res.CheckOutDate, res.CheckInDate)), 0) AS TotalNights,
+       COALESCE(SUM(p.Amount), 0)                             AS TotalSpent
+FROM Guests g
+LEFT JOIN Reservations res ON g.GuestID = res.GuestID AND res.Status <> 'Cancelled'
+LEFT JOIN Payments p       ON res.ReservationID = p.ReservationID AND p.PaymentStatus = 'Completed'
+GROUP BY g.GuestID, g.FirstName, g.LastName;
+
+
+-- =====================================================================
+-- PART F.6 — FUNCTIONS (minimum 2)
+-- =====================================================================
+
+DELIMITER $$
+
+-- Fn1. Number of nights x room's base rate = cost of a stay
+CREATE FUNCTION fn_CalculateStayCost(
+    p_RoomID INT, p_CheckIn DATE, p_CheckOut DATE
+) RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_Rate  DECIMAL(10,2);
+    DECLARE v_Nights INT;
+
+    SELECT rt.BaseRate INTO v_Rate
+    FROM Rooms r
+    JOIN RoomTypes rt ON r.RoomTypeID = rt.RoomTypeID
+    WHERE r.RoomID = p_RoomID;
+
+    SET v_Nights = DATEDIFF(p_CheckOut, p_CheckIn);
+
+    RETURN v_Rate * v_Nights;
+END $$
+
+-- Fn2. Total amount a specific guest has actually paid (completed only)
+CREATE FUNCTION fn_GuestTotalSpent(p_GuestID INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE v_Total DECIMAL(10,2);
+
+    SELECT COALESCE(SUM(p.Amount), 0) INTO v_Total
+    FROM Reservations res
+    JOIN Payments p ON res.ReservationID = p.ReservationID
+    WHERE res.GuestID = p_GuestID AND p.PaymentStatus = 'Completed';
+
+    RETURN v_Total;
+END $$
+
+DELIMITER ;
+
+-- Usage:
+--   SELECT fn_CalculateStayCost(3, '2026-01-05', '2026-01-08');
+--   SELECT fn_GuestTotalSpent(1);
+
+
+-- =====================================================================
+-- PART F.7 — STORED PROCEDURES (minimum 2)
+-- =====================================================================
+
+DELIMITER $$
+
+-- P1. Make a new reservation: validates room availability, inserts the
+--     booking (TotalAmount auto-filled by the BEFORE INSERT trigger),
+--     and flips the room to 'Occupied'.
+CREATE PROCEDURE sp_MakeReservation(
+    IN p_GuestID   INT,
+    IN p_RoomID    INT,
+    IN p_StaffID   INT,
+    IN p_CheckIn   DATE,
+    IN p_CheckOut  DATE,
+    IN p_NumGuests TINYINT
+)
+BEGIN
+    DECLARE v_Status VARCHAR(20);
+
+    SELECT Status INTO v_Status FROM Rooms WHERE RoomID = p_RoomID;
+
+    IF v_Status <> 'Available' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Room is not available for booking.';
+    ELSE
+        INSERT INTO Reservations (GuestID, RoomID, StaffID, CheckInDate, CheckOutDate, NumGuests)
+        VALUES (p_GuestID, p_RoomID, p_StaffID, p_CheckIn, p_CheckOut, p_NumGuests);
+
+        UPDATE Rooms SET Status = 'Occupied' WHERE RoomID = p_RoomID;
+    END IF;
+END $$
+
+-- P2. Cancel a reservation and free up its room again
+CREATE PROCEDURE sp_CancelReservation(IN p_ReservationID INT)
+BEGIN
+    DECLARE v_RoomID INT;
+
+    SELECT RoomID INTO v_RoomID FROM Reservations WHERE ReservationID = p_ReservationID;
+
+    UPDATE Reservations SET Status = 'Cancelled' WHERE ReservationID = p_ReservationID;
+    UPDATE Rooms SET Status = 'Available' WHERE RoomID = v_RoomID;
+END $$
+
+-- P3 (bonus). Simple invoice generator for a reservation:
+--     returns room cost + extra services + amount already paid
+CREATE PROCEDURE sp_GenerateInvoice(IN p_ReservationID INT)
+BEGIN
+    SELECT
+        res.ReservationID,
+        g.FirstName, g.LastName,
+        res.TotalAmount                                  AS RoomCost,
+        COALESCE(SUM(sv.Price * rs.Quantity), 0)          AS ServiceCost,
+        res.TotalAmount + COALESCE(SUM(sv.Price * rs.Quantity), 0) AS GrandTotal,
+        COALESCE((SELECT SUM(Amount) FROM Payments
+                  WHERE ReservationID = p_ReservationID
+                  AND PaymentStatus = 'Completed'), 0)     AS AmountPaid
+    FROM Reservations res
+    JOIN Guests g ON res.GuestID = g.GuestID
+    LEFT JOIN ReservationServices rs ON res.ReservationID = rs.ReservationID
+    LEFT JOIN Services sv            ON rs.ServiceID = sv.ServiceID
+    WHERE res.ReservationID = p_ReservationID
+    GROUP BY res.ReservationID, g.FirstName, g.LastName, res.TotalAmount;
+END $$
+
+DELIMITER ;
+
+-- Usage:
+--   CALL sp_MakeReservation(1, 2, 1, '2026-09-01', '2026-09-04', 2);
+--   CALL sp_CancelReservation(28);
+--   CALL sp_GenerateInvoice(1);
+
+
+-- =====================================================================
+-- PART F.8 — TRIGGERS (bonus, 2 implemented)
+-- =====================================================================
+
+DELIMITER $$
+
+-- T1. BEFORE INSERT — auto-calculate TotalAmount for every new reservation
+--     so front-end code never has to compute pricing itself.
+CREATE TRIGGER trg_before_reservation_insert
+BEFORE INSERT ON Reservations
+FOR EACH ROW
+BEGIN
+    SET NEW.TotalAmount = fn_CalculateStayCost(NEW.RoomID, NEW.CheckInDate, NEW.CheckOutDate);
+END $$
+
+-- T2. AFTER DELETE — log every deleted reservation into an audit table
+--     instead of silently losing the history (e.g. Part E.5 - D2).
+CREATE TRIGGER trg_after_reservation_delete
+AFTER DELETE ON Reservations
+FOR EACH ROW
+BEGIN
+    INSERT INTO ReservationAudit (ReservationID, GuestID, ActionType)
+    VALUES (OLD.ReservationID, OLD.GuestID, 'DELETED');
+END $$
+
+-- T3 (extra bonus). AFTER UPDATE — automatically free the room the moment
+--     a reservation's status is changed to 'Cancelled' or 'CheckedOut'.
+CREATE TRIGGER trg_after_reservation_status_update
+AFTER UPDATE ON Reservations
+FOR EACH ROW
+BEGIN
+    IF NEW.Status IN ('Cancelled','CheckedOut') AND OLD.Status <> NEW.Status THEN
+        UPDATE Rooms SET Status = 'Available' WHERE RoomID = NEW.RoomID;
+    END IF;
+END $$
+
+DELIMITER ;
+
+
+-- =====================================================================
+-- PART G — REPORTS (10 useful business reports)
+-- =====================================================================
+
+-- R1. Total revenue collected, hotel-wise (best-earning hotel first)
+SELECT * FROM vw_HotelRevenueSummary ORDER BY TotalRevenue DESC;
+
+-- R2. Top 5 highest-spending guests
+SELECT GuestID, FirstName, LastName, TotalSpent
+FROM vw_GuestLoyalty
+ORDER BY TotalSpent DESC
+LIMIT 5;
+
+-- R3. Most popular room type by number of bookings
+SELECT rt.TypeName, COUNT(res.ReservationID) AS TimesBooked
+FROM RoomTypes rt
+JOIN Rooms r          ON rt.RoomTypeID = r.RoomTypeID
+JOIN Reservations res ON r.RoomID = res.RoomID
+GROUP BY rt.RoomTypeID, rt.TypeName
+ORDER BY TimesBooked DESC;
+
+-- R4. Currently available rooms, hotel-wise
+SELECT HotelName, COUNT(*) AS AvailableRooms
+FROM vw_RoomAvailability
+WHERE Status = 'Available'
+GROUP BY HotelName
+ORDER BY AvailableRooms DESC;
+
+-- R5. Monthly revenue report (year-month breakdown)
+SELECT DATE_FORMAT(PaymentDate, '%Y-%m') AS Month, SUM(Amount) AS Revenue
+FROM Payments
+WHERE PaymentStatus = 'Completed'
+GROUP BY DATE_FORMAT(PaymentDate, '%Y-%m')
+ORDER BY Month;
+
+-- R6. Staff salary report, hotel-wise (highest paid first)
+SELECT h.HotelName, s.FullName, s.Position, s.Salary
+FROM Staff s
+JOIN Hotels h ON s.HotelID = h.HotelID
+ORDER BY h.HotelName, s.Salary DESC;
+
+-- R7. Reservation status summary (how many are confirmed / cancelled / etc.)
+SELECT Status, COUNT(*) AS Total
+FROM Reservations
+GROUP BY Status;
+
+-- R8. Hotel-wise average guest review rating (best rated first)
+SELECT HotelName, AvgRating, NumReviews
+FROM (
+    SELECT h.HotelName, ROUND(AVG(rv.Rating),2) AS AvgRating, COUNT(rv.ReviewID) AS NumReviews
+    FROM Hotels h
+    JOIN Reviews rv ON h.HotelID = rv.HotelID
+    GROUP BY h.HotelID, h.HotelName
+) AS t
+ORDER BY AvgRating DESC;
+
+-- R9. Best-selling extra service, by total quantity ordered
+SELECT sv.ServiceName, SUM(rs.Quantity) AS TotalSold, SUM(rs.Quantity * sv.Price) AS Revenue
+FROM ReservationServices rs
+JOIN Services sv ON rs.ServiceID = sv.ServiceID
+GROUP BY sv.ServiceID, sv.ServiceName
+ORDER BY TotalSold DESC;
+
+-- R10. Guests with more than one reservation (repeat customers)
+SELECT GuestID, FirstName, LastName, TotalStays
+FROM vw_GuestLoyalty
+WHERE TotalStays > 1
+ORDER BY TotalStays DESC;
+
+-- R11 (bonus). Occupancy rate per hotel: occupied rooms vs total rooms
+SELECT h.HotelName,
+       COUNT(r.RoomID)                                   AS TotalRooms,
+       SUM(CASE WHEN r.Status = 'Occupied' THEN 1 ELSE 0 END) AS OccupiedRooms,
+       ROUND(100 * SUM(CASE WHEN r.Status = 'Occupied' THEN 1 ELSE 0 END) / COUNT(r.RoomID), 1) AS OccupancyPercent
+FROM Hotels h
+JOIN Rooms r ON h.HotelID = r.HotelID
+GROUP BY h.HotelID, h.HotelName
+ORDER BY OccupancyPercent DESC;
+
+-- =====================================================================
+-- END OF SCRIPT
+-- =====================================================================
