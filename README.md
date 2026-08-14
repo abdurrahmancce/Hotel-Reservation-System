@@ -478,7 +478,7 @@ These design decisions were identified as major challenges and solutions in the 
 
 | Name                        | ID          | Contribution                                       |
 | --------------------------- | ----------- | -------------------------------------------------- |
-| **Abdur Rahman**            | **E241018** | Poject Leas, Database design, SQL implementation, documentation |
+| **Abdur Rahman**            | **E241018** | Project Lead, Database design, SQL implementation, documentation |
 | **Ramiatul Amin Chowdhury** | **E241030** | ER diagram, normalization, testing                 |
 | **Minhajun Noor Miraj**     | **E241027** | Sample data, reports, presentation                 |
 
