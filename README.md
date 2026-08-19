@@ -6,6 +6,17 @@ A complete **Hotel Reservation System** developed as a Database Management Syste
 
 ---
 
+## 📁 Project Structure
+
+```text
+Hotel-Reservation-System/
+│
+├── hotel_reservation_system.sql
+├── Hotel_Reservation_System_Report.pdf
+├── ER_Diagram.png
+└── README.md
+```
+
 ## 📌 Project Overview
 
 Traditional hotel reservation processes can result in double bookings, inconsistent customer records, incorrect payment information, and inefficient report generation.
@@ -351,19 +362,6 @@ The system provides **11 management reports**, including:
 9. Best-selling additional service
 10. Repeat guests
 11. Room occupancy rate per hotel
-
----
-
-## 📁 Project Structure
-
-```text
-Hotel-Reservation-System/
-│
-├── hotel_reservation_system.sql
-├── Hotel_Reservation_System_Report.pdf
-├── ER_Diagram.png
-└── README.md
-```
 
 ---
 
