@@ -15,7 +15,10 @@ Hotel-Reservation-System/
 ├── Hotel_Reservation_System_Report.pdf
 ├── ER_Diagram.png
 └── README.md
+
 ```
+
+---
 
 ## 📌 Project Overview
 
