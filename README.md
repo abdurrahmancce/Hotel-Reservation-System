@@ -11,7 +11,7 @@ A complete **Hotel Reservation System** developed as a Database Management Syste
 ```text
 Hotel-Reservation-System/
 │
-├── hotel_reservation_system.sql
+├── code.sql
 ├── Hotel_Reservation_System_Report.pdf
 ├── ER_Diagram.png
 └── README.md
